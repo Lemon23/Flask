@@ -2,7 +2,7 @@ import unittest
 import time
 from datetime import datetime
 from app import db, create_app
-from app.models import User, AnonymousUser, Role, Permission
+from app.models import User, AnonymousUser, Role, Permission, Follow
 
 
 class UserModelTestCase(unittest.TestCase):
@@ -170,7 +170,7 @@ class UserModelTestCase(unittest.TestCase):
         u.ping()
         self.assertTrue(u.last_seen > last_seen_before)
 
-    # 
+    # Detection Profile Photos
     def test_gravatar(self):
         u = User(email='1367861073@qq.com', password='cat')
         with self.app.test_request_context('/'):
@@ -187,3 +187,42 @@ class UserModelTestCase(unittest.TestCase):
         self.assertTrue('d=retro' in gravatar_retro)
         self.assertTrue('https://secure.gravatar.com/avatar/' +
                         '538dd953ba7bc9c7a3bbf825296914fa' in gravatar_ssl)
+
+    # Detection Database Relations
+    def test_follows(self):
+        u1 = User(email='john@example.com', password='cat')
+        u2 = User(email='susan@example.org', password='dog')
+        db.session.add(u1)
+        db.session.add(u2)
+        db.session.commit()
+        self.assertFalse(u1.is_following(u2))
+        self.assertFalse(u1.is_followed_by(u2))
+        timestamp_before = datetime.utcnow()
+        u1.follow(u2)
+        db.session.add(u1)
+        db.session.commit()
+        timestamp_after = datetime.utcnow()
+        self.assertTrue(u1.is_following(u2))
+        self.assertFalse(u1.is_followed_by(u2))
+        self.assertTrue(u2.is_followed_by(u1))
+        self.assertTrue(u1.followed.count() == 2)
+        self.assertTrue(u2.followers.count() == 2)
+        f = u1.followed.all()[-1]
+        self.assertTrue(f.followed == u2)
+        self.assertTrue(timestamp_before <= f.timestamp <= timestamp_after)
+        f = u2.followers.all()[-1]
+        self.assertTrue(f.follower == u1)
+        u1.unfollow(u2)
+        db.session.add(u1)
+        db.session.commit()
+        self.assertTrue(u1.followed.count() == 1)
+        self.assertTrue(u2.followers.count() == 1)
+        self.assertTrue(Follow.query.count() == 2)
+        u2.follow(u1)
+        db.session.add(u1)
+        db.session.add(u2)
+        db.session.commit()
+        db.session.delete(u2)
+        db.session.commit()
+        self.assertTrue(Follow.query.count() == 1)
+

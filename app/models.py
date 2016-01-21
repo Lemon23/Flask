@@ -1,7 +1,7 @@
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from markdown import markdown
-from flask import current_app, request
+from flask import current_app, request, session
 from datetime import datetime
 from flask.ext.login import UserMixin, AnonymousUserMixin
 import hashlib
@@ -22,14 +22,14 @@ class Role(db.Model):
 	__tablename__ = 'roles'
 	id = db.Column(db.Integer, primary_key=True)
 	name = db.Column(db.String(64), unique=True)
-	# Setting role permission
+	#: Setting role permission
 	default = db.Column(db.Boolean, default=False, index=True)
 	permissions = db.Column(db.Integer)
-	# Establish relationship with User model
+	#: Establish relationship with User model
 	users = db.relationship('User', backref='role', lazy='dynamic')
 
 	@staticmethod
-	# Find an existing role by role name, and then update
+	# Find an existing role by role name, and then update, 
 	# When the database is not the role name, Just Creating a new role objects
 	def insert_roles():
 		roles = {
@@ -51,19 +51,28 @@ class Role(db.Model):
 	def __repr__(self):
 		return '<Role %r>'% self.name
 
+# Followers the associated table model
+class Follow(db.Model):
+    __tablename__ = 'follows'
+    follower_id = db.Column(db.Integer, db.ForeignKey('users.id'),
+                            primary_key=True)
+    followed_id = db.Column(db.Integer, db.ForeignKey('users.id'),
+                            primary_key=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
 
 class User(UserMixin, db.Model):
 	__tablename__ = 'users'
 	id = db.Column(db.Integer, primary_key=True)
 	email = db.Column(db.String(64), unique=True, index=True)
 	username = db.Column(db.String(64), unique=True, index=True)
-	# Establish external links, role_id = id
+	#: Establish external links, role_id = id
 	role_id = db.Column(db.Integer, db.ForeignKey('roles.id'))
-	# Password hash
+	#: Password hash
 	password_hash = db.Column(db.String(128))
-	# Confirm the user account
+	#: Confirm the user account
 	confirmed = db.Column(db.Boolean, default=False)
-	# User information field
+	#: User information field
 	name = db.Column(db.String(64))
 	location = db.Column(db.String(64))
 	about_me = db.Column(db.Text())
@@ -72,6 +81,26 @@ class User(UserMixin, db.Model):
 
 	avatar_hash = db.Column(db.String(32))
 	posts = db.relationship('Post', backref='author', lazy='dynamic')
+	#: Use two 'one-to-many' relationship, Realization 'many-to-many' relationship
+	followed = db.relationship('Follow',
+                               foreign_keys=[Follow.follower_id],
+                               backref=db.backref('follower', lazy='joined'),
+                               lazy='dynamic',
+                               cascade='all, delete-orphan')
+	followers = db.relationship('Follow',
+                                foreign_keys=[Follow.followed_id],
+                                backref=db.backref('followed', lazy='joined'),
+                                lazy='dynamic',
+                                cascade='all, delete-orphan')
+
+	# user set their own Followers
+	@staticmethod
+	def add_self_follows():
+		for user in User.query.all():
+			if not user.is_following(user):
+				user.follow(user)
+				db.session.add(user)
+				db.session.commit()
 
 	# Define a default user roles
 	def __init__(self, **kwargs):
@@ -84,6 +113,7 @@ class User(UserMixin, db.Model):
 		if self.email is not None and self.avatar_hash is None:
 			self.avatar_hash = hashlib.md5(
 				self.email.encode('utf-8')).hexdigest()
+		self.followed.append(Follow(followed=self))
  
 
 	@property
@@ -95,8 +125,10 @@ class User(UserMixin, db.Model):
 	def password(self, password):
 		self.password_hash = generate_password_hash(password)
 	
-	# Accept a parameter password, and User model in the password hash value for comparison
-	# if return True, it means that the password is correct
+	''' Accept a parameter password, and User model in the password
+	    hash value for comparison, 
+	    if return True, it means that the password is correct
+	'''
 	def verify_password(self, password):
 		return check_password_hash(self.password_hash, password)
 	
@@ -185,12 +217,37 @@ class User(UserMixin, db.Model):
 		return '{url}/{hash}?s={size}&d={default}&r={rating}'.format(
             url=url, hash=hash, size=size, default=default, rating=rating)
 
+	def follow(self, user):
+		if not self.is_following(user):
+			f = Follow(follower=self, followed=user)
+			db.session.add(f)
+
+	def unfollow(self, user):
+		f = self.followed.filter_by(followed_id=user.id).first()
+		if f:
+			db.session.delete(f)
+
+	def is_following(self, user):
+		return self.followed.filter_by(
+            followed_id=user.id).first() is not None
+
+	def is_followed_by(self, user):
+		return self.followers.filter_by(
+            follower_id=user.id).first() is not None
+
+	# Get Concerned User Articles
+	@property
+	def followed_posts(self):
+		return Post.query.join(Follow, Follow.followed_id == Post.author_id) \
+            .filter(Follow.follower_id == self.id)
 	
 	def __repr__(self):
 		return '<User %r>'% self.username
 
-# Without having to first checking whether the user login
-# It can free calls 'current_user.can()' and 'current_user.is_administrator()'
+''' Without having to first checking whether the user login, 
+    It can free calls 'current_user.can()' 
+    and 'current_user.is_administrator()'
+'''
 class AnonymousUser(AnonymousUserMixin):
 	def can(self, permissions):
 		return False
