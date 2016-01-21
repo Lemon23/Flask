@@ -9,7 +9,7 @@
 <div class="page-header">
 	<h1>Hello, 
 		{% if current_user.is_authenticated %}
-		{{ current_user.username|capitalize }}
+		{{ current_user.username | capitalize }}
 		{% else %}
 		Lemon
 		{% endif %}!
@@ -31,5 +31,10 @@
 	{{ macros.pagination_widget(pagination, '.index') }}
 </div>
 {% endif %}
-
 {% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{{ pagedown.include_pagedown() }}
+{% endblock %}
+
