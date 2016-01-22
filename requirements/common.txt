@@ -8,6 +8,7 @@ bonjour-py==0.3
 dominate==2.1.16
 Flask==0.10.1
 Flask-Bootstrap==3.3.5.7
+Flask-HTTPAuth==2.7.0
 Flask-Mail==0.9.1
 Flask-Migrate==1.7.0
 Flask-Moment==0.5.1

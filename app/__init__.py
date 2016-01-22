@@ -36,5 +36,9 @@ def create_app(config_name):
 	app.register_blueprint(auth_blueprint, url_prefix='/auth') 
 	# '/auth' -- After the registration of all defined routing blueprint will add the specified prefix
 
+	from .api_1_0 import api as api_1_0_blueprint
+	app.register_blueprint(api_1_0_blueprint, url_prefix='/api/v1.0')
+
+
 	return app
 
